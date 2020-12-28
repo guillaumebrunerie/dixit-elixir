@@ -11,21 +11,24 @@ defmodule Dixit.Network do
     if args.ws? do
       handshake(args.socket)
     end
-    read_next_command(args)
+    read_next_message(args)
   end
 
   
-  defp read_next_command(args) do
+  defp read_next_message(args) do
     IO.puts("Listening")
-    command = if args.ws? do
+    message = if args.ws? do
       read_packet(args.socket)
     else
       read_line(args.socket)
     end
 
-    GenServer.call(args.parent, {:received, command})
+    case GenServer.call(args.parent, {:received, message}) do
+      :ok -> :ok
+      {:error, e} -> send_message("ERROR #{e}", args)
+    end
 
-    read_next_command(args)
+    read_next_message(args)
   end
 
   def send_message(data, args) do

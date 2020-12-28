@@ -16,16 +16,16 @@ defmodule Dixit.Command do
     end
   end
 
-  def run(command, logic \\ Dixit.GameLogic) do
-    case command do
-      {:name,   name} -> Dixit.GameLogic.run_name(name, logic)
-      {:tell,   card} -> Dixit.GameLogic.run_tell(card, logic)
-      {:select, card} -> Dixit.GameLogic.run_select(card, logic)
-      {:vote,   card} -> Dixit.GameLogic.run_vote(card, logic)
-      {:nextround}    -> Dixit.GameLogic.run_nextround(logic)
-    end
-  end
-
+  # def run(command, logic \\ Dixit.GameLogic) do
+  #   case command do
+  #     {:name,   name} -> Dixit.GameLogic.run_name(name, logic)
+  #     {:tell,   card} -> Dixit.GameLogic.run_tell(card, logic)
+  #     {:select, card} -> Dixit.GameLogic.run_select(card, logic)
+  #     {:vote,   card} -> Dixit.GameLogic.run_vote(card, logic)
+  #     {:nextround}    -> Dixit.GameLogic.run_nextround(logic)
+  #   end
+  # end
+  
   def format_state(state) do
     case state.phaseT do
       %{teller: teller,

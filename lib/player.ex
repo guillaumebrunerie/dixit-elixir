@@ -13,28 +13,28 @@ defmodule Dixit.Player do
   @impl true
   def init(args) do
     args = Map.put(args, :parent, self())
-    # The process waiting for messages from the network
+    # The process waiting for messages from the network: TODO: do not use spawn
     spawn(fn -> Dixit.Network.init(args) end)
     {:ok, args}
   end
 
+  # Received a message from the player
   @impl true
   def handle_call({:received, message}, _from, args) do
-    response =
-      with {:ok, command} <- Dixit.Command.parse(message),
-      do:  Dixit.Command.run(command)
-
-    case response do
-      {:ok, state, hand} ->
-        broadcast_state(state, args)
-        if hand == true, do: broadcast_hands(state, args)
-        if hand !== nil && hand !== true, do: send_commands({:cards, hand}, args)
-      {:error, e} -> Dixit.Network.send_message("ERROR #{e}", args)
+    case Dixit.Command.parse(message) do
+      {:ok, command} ->
+        case Dixit.GameRegister.run(command) do
+          {:ok, state, hand} ->
+            Dixit.Network.send_message(Dixit.Command.format_state(state), args)
+            if hand !== nil && hand !== true, do: send_commands({:cards, hand}, args)
+            {:reply, :ok, args}
+          {:error, e} -> {:reply, {:error, e}, args}
+        end
+      e -> {:reply, e, args}
     end
-
-    {:reply, :ok, args}
   end
 
+  # Received a message from the server
   @impl true
   def handle_call({:send, message}, _from, args) do
     Dixit.Network.send_message(message, args)
@@ -52,28 +52,6 @@ defmodule Dixit.Player do
       is_list(command) -> Enum.each(command, &send_commands(&1, args))
       true -> Dixit.Network.send_message(Dixit.Command.format(command), args)
     end
-  end
-
-  defp broadcast_state(state, args) do
-    Dixit.Network.send_message(Dixit.Command.format_state(state), args)
-    Enum.each(state.players,
-      fn player ->
-        pid = Enum.find_value(state.pids, fn {pid, name} -> name === player && pid end)
-        if pid != self(), do: GenServer.call(pid, {:send_state, state})
-      end)
-  end
-
-  defp broadcast_hands(state, args) do
-    Enum.each(state.hands,
-      fn {player, hand} ->
-        pid = Enum.find_value(state.pids, fn {pid, name} -> name === player && pid end)
-        message = Dixit.Command.format({:cards, hand})
-        if pid != self() do
-          GenServer.call(pid, {:send, message})
-        else
-          Dixit.Network.send_message(message, args)
-        end
-      end)
   end
 
   def send_command(command, id) do

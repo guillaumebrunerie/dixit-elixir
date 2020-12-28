@@ -19,8 +19,7 @@ defmodule Dixit.GameLogic do
     else
       Enum.to_list(deck)
     end
-    {:ok, %{pids: %{},
-            players: [],
+    {:ok, %{players: [],
             scores: %{},
             hands: %{},
             deck: deck,
@@ -37,54 +36,74 @@ defmodule Dixit.GameLogic do
     {:ok, {a , t}}
   end
 
-  
   @impl true
-  def handle_call({:name, name}, {pid, _}, state) do
-    cond do
-      # Check that the pid does not already exist
-      Map.get(state.pids, pid) != nil ->
-        {:reply, {:error, :duplicate_name_command}, state}
-      true ->
-        state =
-        if Enum.member?(state.players, name) do
-          IO.puts("Existing player: #{name}")
-          put_in(state.pids[pid], name)
-        else
-          IO.puts("New player: #{name} with pid #{inspect pid}")
-          {hand, deck} = pick_hand(state.deck)
-          state
-          |> put_in([:pids, pid], name)
-          |> put_in([:scores, name], 0)
-          |> put_in([:hands, name], hand)
-          |> put_in([:deck], deck)
-          |> put_in([:players], [name | state.players])
-          |> update_in([:phaseT], &(&1 || %{teller: name, phaseS: nil}))
-        end
-        {:reply, {:ok, state, state.hands[name]}, state}
-    end
+  def handle_call({:get_state}, _, state) do
+    {:reply, {:ok, state}, state}
+  end
+
+  def get_state(logic) do
+    GenServer.call(logic, {:get_state})
   end
   
   @impl true
-  def handle_call({:tell, card}, {pid, _}, state) do
-    player = state.pids[pid]
+  def handle_call({:new_player, name}, _, state) do
+    {hand, deck} = pick_hand(state.deck)
+    state = state
+    |> put_in([:scores, name], 0)
+    |> put_in([:hands, name], hand)
+    |> put_in([:deck], deck)
+    |> put_in([:players], [name | state.players])
+    |> update_in([:phaseT], &(&1 || %{teller: name, phaseS: nil}))
+    {:reply, {:ok, state, hand}, state}
+  end
+
+  # @impl true
+  # def handle_call({:name, name}, {pid, _}, state) do
+  #   cond do
+  #     # Check that the pid does not already exist
+  #     Map.get(state.pids, pid) != nil ->
+  #       {:reply, {:error, :duplicate_name_command}, state}
+  #     true ->
+  #       state =
+  #       if Enum.member?(state.players, name) do
+  #         IO.puts("Existing player: #{name}")
+  #         put_in(state.pids[pid], name)
+  #       else
+  #         IO.puts("New player: #{name} with pid #{inspect pid}")
+  #         {hand, deck} = pick_hand(state.deck)
+  #         state
+  #         |> put_in([:pids, pid], name)
+  #         |> put_in([:scores, name], 0)
+  #         |> put_in([:hands, name], hand)
+  #         |> put_in([:deck], deck)
+  #         |> put_in([:players], [name | state.players])
+  #         |> update_in([:phaseT], &(&1 || %{teller: name, phaseS: nil}))
+  #       end
+  #       {:reply, {:ok, state, state.hands[name]}, state}
+  #   end
+  # end
+
+  def new_player(logic, name) do
+    GenServer.call(logic, {:new_player, name})
+  end
+  
+  def run(state, player, {:tell, card}) do
     case state.phaseT do
       %{teller: teller, phaseS: nil} ->
         if (teller !== player) do
-          {:reply, {:error, :not_your_turn_to_tell}, state}
+          {:error, :not_your_turn_to_tell}
         else
           other_players = Enum.filter(state.players, &(&1 != teller))
           selected = Map.new(other_players, &({&1, nil}))
           state = put_in(state.phaseT.phaseS, %{answer: card, selected: selected, phaseV: nil})
-          {:reply, {:ok, state, nil}, state}
+          {:ok, state, nil}
         end
       _ -> 
-        {:reply, {:error, :wrong_game_state}, state}
+        {:error, :wrong_game_state}
     end
   end
   
-  @impl true
-  def handle_call({:select, card}, {pid, _}, state) do
-    player = state.pids[pid]
+  def run(state, player, {:select, card}) do
     case state.phaseT do
       %{teller: teller,
         phaseS: %{
@@ -94,7 +113,7 @@ defmodule Dixit.GameLogic do
         }
       } ->
         if (!Map.has_key?(selected, player)) do
-          {:reply, {:error, :not_your_turn_to_select}, state}
+          {:error, :not_your_turn_to_select}
         else
           state = put_in(state.phaseT.phaseS.selected[player], card)
           selected = state.phaseT.phaseS.selected
@@ -110,16 +129,14 @@ defmodule Dixit.GameLogic do
                 votes: votes,
                 phaseR: nil})
           end
-          {:reply, {:ok, state, nil}, state}
+          {:ok, state, nil}
         end
       _ ->
-        {:reply, {:error, :wrong_game_state}, state}
+        {:error, :wrong_game_state}
     end
   end
 
-  @impl true
-  def handle_call({:vote, card}, {pid, _}, state) do
-    player = state.pids[pid]
+  def run(state, player, {:vote, card}) do
     case state.phaseT do
       %{teller: teller,
         phaseS: %{
@@ -132,7 +149,7 @@ defmodule Dixit.GameLogic do
            }
         }
       } -> if (!Map.has_key?(votes, player)) do
-        {:reply, {:error, :not_your_turn_to_vote}, state}
+        {:error, :not_your_turn_to_vote}
       else
         state = put_in(state.phaseT.phaseS.phaseV.votes[player], card)
         votes = state.phaseT.phaseS.phaseV.votes
@@ -156,15 +173,13 @@ defmodule Dixit.GameLogic do
             %{results: Map.new(candidates, evaluate),
               waiting: state.players}))
         end
-        {:reply, {:ok, state, nil}, state}
+        {:ok, state, nil}
       end
-      _ -> {:reply, {:error, :wrong_game_state}, state}
+      _ -> {:error, :wrong_game_state}
     end
   end
 
-  @impl true
-  def handle_call({:nextround}, {pid, _}, state) do
-    player = state.pids[pid]
+  def run(state, player, {:nextround}) do
     case state.phaseT do
       %{phaseS: %{
           phaseV: %{
@@ -174,7 +189,7 @@ defmodule Dixit.GameLogic do
           }
         }
       } -> if (!Enum.member?(waiting, player)) do
-        {:reply, {:error, :already_clicked_next_round}, state}
+        {:error, :already_clicked_next_round}
       else
         state = put_in(state.phaseT.phaseS.phaseV.phaseR.waiting,
             Enum.filter(waiting, &(&1 !== player)))
@@ -184,10 +199,10 @@ defmodule Dixit.GameLogic do
         else
           {state, nil}
         end
-        {:reply, {:ok, state, newround}, state}
+        {:ok, state, newround}
       end
       _ ->        
-        {:reply, {:error, :wrong_game_state}, state}
+        {:error, :wrong_game_state}
     end
   end
 
@@ -225,7 +240,6 @@ defmodule Dixit.GameLogic do
     case new_hands do
       {:ok, deck, hands} ->
         %{
-          pids: state.pids,
           players: state.players,
           scores: state.scores,
           hands: hands,
@@ -237,7 +251,6 @@ defmodule Dixit.GameLogic do
         }
       :exhausted_deck ->
         %{
-          pids: state.pids,
           players: state.players,
           scores: state.scores,
           hands: state.hands,
@@ -305,4 +318,28 @@ defmodule Dixit.GameLogic do
   def run_nextround(logic) do
     GenServer.call(logic, {:nextround})
   end
+  
+  @impl true
+  def handle_call({:command, name, command}, _, state) do
+    case run(state, name, command) do
+      {:ok, new_state, hand} ->
+        {:reply, {:ok, new_state, hand}, new_state}
+      {:error, error} ->
+        {:reply, {:error, error}, state}
+    end
+  end
+
+  def run_command(logic, name, command) do
+    GenServer.call(logic, {:command, name, command})
+  end
+  
+  @impl true
+  def handle_call({:has_player?, name}, _, state) do
+    {:reply, Enum.member?(state.players, name), state}
+  end
+
+  def has_player?(logic, name) do
+    GenServer.call(logic, {:has_player?, name})
+  end
+
 end

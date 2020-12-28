@@ -16,7 +16,7 @@ defmodule Dixit.Application do
   def start(_type, _args) do
     children = [
       {Dixit.GameLogic,    name: Dixit.GameLogic, random: true},
-#      {Dixit.GameRegister, name: Dixit.GameRegister},
+      {Dixit.GameRegister, name: Dixit.GameRegister},
       {DynamicSupervisor, strategy: :one_for_one, name: Dixit.PlayerSupervisor},
       Supervisor.child_spec({Task, fn -> listen(4020, true)  end}, id: Dixit.Listener1), # WebSockets
       Supervisor.child_spec({Task, fn -> listen(4000, false) end}, id: Dixit.Listener2), # Plain text
