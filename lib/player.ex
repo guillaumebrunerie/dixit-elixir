@@ -1,127 +1,83 @@
 defmodule Dixit.Player do
   @moduledoc """
-  Utility functions to communicate with the clients.
+  Receives messages from the websocket library and sends them to the logic,
+  and vice versa.
   """
 
-  @webSocketMagicString "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-  @webSockets false
+  use GenServer
 
-  require Logger
-  use Bitwise
-
-  def connect(socket) do
-    if (@webSockets) do
-      handshake(socket)
-    end
-    serve(socket)
+  def start_link(args) do
+    GenServer.start_link(__MODULE__, args)
   end
-  
-  def serve(socket) do
-    data = read_command(socket)
-    case Dixit.Command.parse(data) do
-      {:ok, command} ->
-        case Dixit.Command.run(command, socket) do
-          {:error, e} -> write_command("ERROR #{e}", socket)
-          _ -> nil
+
+  @impl true
+  def init(args) do
+    args = Map.put(args, :parent, self())
+    # The process waiting for messages from the network
+    spawn(fn -> Dixit.Network.init(args) end)
+    {:ok, args}
+  end
+
+  @impl true
+  def handle_call({:received, message}, _from, args) do
+    response =
+      with {:ok, command} <- Dixit.Command.parse(message),
+      do:  Dixit.Command.run(command)
+
+    case response do
+      {:ok, state, hand} ->
+        broadcast_state(state, args)
+        if hand == true, do: broadcast_hands(state, args)
+        if hand !== nil && hand !== true, do: send_commands({:cards, hand}, args)
+      {:error, e} -> Dixit.Network.send_message("ERROR #{e}", args)
+    end
+
+    {:reply, :ok, args}
+  end
+
+  @impl true
+  def handle_call({:send, message}, _from, args) do
+    Dixit.Network.send_message(message, args)
+    {:reply, :ok, args}
+  end
+
+  @impl true
+  def handle_call({:send_state, state}, _from, args) do
+    Dixit.Network.send_message(Dixit.Command.format_state(state), args)
+    {:reply, :ok, args}
+  end
+
+  defp send_commands(command, args) do
+    cond do
+      is_list(command) -> Enum.each(command, &send_commands(&1, args))
+      true -> Dixit.Network.send_message(Dixit.Command.format(command), args)
+    end
+  end
+
+  defp broadcast_state(state, args) do
+    Dixit.Network.send_message(Dixit.Command.format_state(state), args)
+    Enum.each(state.players,
+      fn player ->
+        pid = Enum.find_value(state.pids, fn {pid, name} -> name === player && pid end)
+        if pid != self(), do: GenServer.call(pid, {:send_state, state})
+      end)
+  end
+
+  defp broadcast_hands(state, args) do
+    Enum.each(state.hands,
+      fn {player, hand} ->
+        pid = Enum.find_value(state.pids, fn {pid, name} -> name === player && pid end)
+        message = Dixit.Command.format({:cards, hand})
+        if pid != self() do
+          GenServer.call(pid, {:send, message})
+        else
+          Dixit.Network.send_message(message, args)
         end
-      {:error, e} -> write_command("ERROR #{e}", socket)
-    end
-    serve(socket)
+      end)
   end
 
-  defp read_command(socket) do
-    if (@webSockets) do
-      read_packet(socket)
-    else
-      read_line(socket)
-    end
-  end
-
-  def write_command(data, socket) do
-    if (is_list(data)) do
-      Enum.each(data, &write_command(&1, socket))
-    else
-      if (@webSockets) do
-        write_packet(data, socket)
-      else
-        write_line(data, socket)
-      end
-    end
-  end
-  
-  # Read a single line in plain text
-  defp read_line(socket) do
-    {:ok, data} = :gen_tcp.recv(socket, 0)
-    data = String.trim_trailing(data)
-    IO.puts(":recv " <> data)
-    data
-  end
-
-  @doc "Write a single line in plain text"
-  def write_line(line, socket, terminator \\ "\r\n") do
-    IO.puts(":send #{line}#{terminator}")
-    :gen_tcp.send(socket, "#{line}#{terminator}")
-  end
-
-  @doc "Do the websocket handshake"
-  def handshake(socket, response \\ nil) do
-    line = read_line(socket)
-    case line do
-      "Sec-WebSocket-Key: " <> key ->  # Decode the key
-        IO.puts("Received key")
-        response =
-          key
-          |> (&(&1 <> @webSocketMagicString)).()
-          |> (&(:crypto.hash(:sha,&1))).()
-          |> Base.encode64()
-        handshake(socket, response)
-      "" ->  # Open the connection
-        IO.puts("Connecting")
-        write_line("HTTP/1.1 101 Switching Protocols", socket)
-        write_line("Upgrade: websocket", socket)
-        write_line("Connection: Upgrade", socket)
-        write_line("Sec-WebSocket-Accept: #{response}", socket)
-        write_line("", socket)
-        :inet.setopts(socket, packet: :raw)
-      _ ->  # Ignore other headers
-        handshake(socket, response)
-    end
-  end
-
-  # Read a websocket packet
-  defp read_packet(socket) do
-    {:ok, <<1::1, 0::3, 1::4, maskbit::1, len::7>>} = :gen_tcp.recv(socket, 2)
-    {:ok, <<_::32>> = mask} = if maskbit, do: :gen_tcp.recv(socket, 4), else: {:ok, <<0::32>>}
-    {:ok, payload} = :gen_tcp.recv(socket, len)
-    data = decode(payload, mask)
-
-    IO.puts(":r #{data}")
-    data
-  end            
-
-  # Decode masked data
-  defp decode(payload, mask, acc \\ "")
-  
-  defp decode("", _mask, acc) do
-    acc
-  end
-
-  defp decode(<<byte, rest::binary>>, <<mhead, mtail::binary>>, acc) do
-    decode(rest,
-      mtail <> <<mhead>>,
-      acc <> <<byte ^^^ mhead>>)
-  end
-
-  # Encode data into a packet
-  defp encode(data) do
-    len = byte_size(data)
-    if (len >= 126), do: IO.puts("Unsupported packet size")
-    <<129, len>> <> data
-  end
-
-  # Send data as a websocket packet
-  def write_packet(data, socket) do
-    IO.puts(":s #{data}")
-    :gen_tcp.send(socket, encode(data))
+  def send_command(command, id) do
+    message = Dixit.Command.format(command)
+    GenServer.call(id, {:send, message})
   end
 end

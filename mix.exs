@@ -8,7 +8,7 @@ defmodule Dixit.MixProject do
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      mod: {Dixit.MainServer, []}
+      mod: {Dixit.Application, []}
     ]
   end
 
@@ -16,7 +16,7 @@ defmodule Dixit.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {Dixit.MainServer, []}
+      mod: {Dixit.Application, []}
     ]
   end
 
