@@ -3,29 +3,29 @@ defmodule Dixit.Command do
   Parsing commands.
   """
 
+  @doc ~S"""
+  Parse the given message into a command.
+
+  ## Examples
+
+    iex> Dixit.Command.parse("JOINGAME 42 Guillaume\r\n")
+    {:ok, {:join_game, "42", "Guillaume"}}
+  """
   def parse(line) do
     case String.split(line) do
-      ["NAME", name]   -> {:ok, {:name, name}}
-      ["TELL", card]   -> {:ok, {:tell, String.to_integer(card)}}
-      ["SELECT"]       -> {:ok, {:select, nil}}
-      ["SELECT", card] -> {:ok, {:select, String.to_integer(card)}}
-      ["VOTE"]         -> {:ok, {:vote, nil}}
-      ["VOTE", card]   -> {:ok, {:vote, String.to_integer(card)}}
-      ["NEXTROUND"]    -> {:ok, {:nextround}}
+      ["JOINGAME", game, name] -> {:ok, {:join_game, game, name}}
+      ["NAME", name]           -> {:ok, {:join_game, "default", name}}
+      ["TELL", card]           -> {:ok, {:tell, String.to_integer(card)}}
+      ["SELECT", card]         -> {:ok, {:select, String.to_integer(card)}}
+      ["SELECT"]               -> {:ok, {:select, nil}}
+      ["VOTE", card]           -> {:ok, {:vote, String.to_integer(card)}}
+      ["VOTE"]                 -> {:ok, {:vote, nil}}
+      ["NEXTROUND"]            -> {:ok, {:nextround}}
+      ["CRASH"]                -> {:ok, {:crash}}
       _ -> {:error, :unknown_command}
     end
   end
 
-  # def run(command, logic \\ Dixit.GameLogic) do
-  #   case command do
-  #     {:name,   name} -> Dixit.GameLogic.run_name(name, logic)
-  #     {:tell,   card} -> Dixit.GameLogic.run_tell(card, logic)
-  #     {:select, card} -> Dixit.GameLogic.run_select(card, logic)
-  #     {:vote,   card} -> Dixit.GameLogic.run_vote(card, logic)
-  #     {:nextround}    -> Dixit.GameLogic.run_nextround(logic)
-  #   end
-  # end
-  
   def format_state(state) do
     case state.phaseT do
       %{teller: teller,
@@ -54,9 +54,8 @@ defmodule Dixit.Command do
 
       %{teller: teller,
         phaseS: %{
-          answer: answer,
-          selected: selected,
           phaseV: %{
+            candidates: candidates,
             phaseR: %{
               results: results,
               waiting: waiting
@@ -64,12 +63,12 @@ defmodule Dixit.Command do
           }
         }
       } ->
-        cmd_card = fn {origin, votes} ->
-          card = if origin === teller, do: answer, else: selected[origin]
+        cmd_card = fn card ->
+          %{origin: origin, votes: votes} = results[card]
           "#{card} #{origin} #{length votes} #{Enum.join(votes, " ")}"
         end
         ["TELLER #{teller}",
-         "RESULTS #{results |> Enum.map(cmd_card) |> Enum.join(" ")}",
+         "RESULTS #{candidates |> Enum.map(cmd_card) |> Enum.join(" ")}",
          format({:players, state.players, state.scores}),
          "WAITING #{Enum.join(waiting, " ")}"]
     end
@@ -93,28 +92,4 @@ defmodule Dixit.Command do
   def format({:cards, hand}) do
     Enum.reduce(hand, "CARDS", (fn k, acc -> "#{acc} #{k}" end))
   end
-
-  # def format({:telling, name}) do
-  #   "TELLING #{name}"
-  # end
-
-  # def format({:selecting, _solution, selecters}) do
-  #   Enum.reduce(selecters, "SELECTING",
-  #     fn {k, n}, acc ->
-  #       case n do
-  #         nil -> "#{acc} #{k}"
-  #         _ -> acc
-  #       end
-  #     end)
-  # end
-
-  # def format({:voting, _solution, _selecters, cards, voters}) do
-  #   card_list = Enum.join(cards, " ")
-  #   voter_list =
-  #     voters
-  #     |> Map.keys
-  #     |> Enum.filter(fn k -> voters[k] == nil end)
-  #     |> Enum.join(" ")
-  #   "VOTING #{card_list} #{voter_list}"
-  # end
 end

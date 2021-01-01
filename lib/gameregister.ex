@@ -2,52 +2,79 @@ defmodule Dixit.GameRegister do
   @moduledoc """
   Maps players to games.
 
-  We need to map a pid of a player to its eventual game pid and eventual name
+  In the register we store
+
+  players: map from player pid to %{name: name, game: game}
+  games:   map from game to %{gamepid: pid, players: map names -> pids}
+
+  Things that can happen:
+  - a players connects
+  - a player disconnects
   """
-  
+
   use GenServer
 
+  require Logger
+  
   def start_link(opts) do
     GenServer.start_link(__MODULE__, :ok, opts)
   end
 
   @impl true
   def init(:ok) do
-    {:ok, %{}}
+    Logger.info("Hello from the GameRegister")
+    {:ok, %{players: %{}, games: %{}}}
   end
 
-  # TODO: New game, join game, etc…
+  def ensure_game_exists(register, game) do
+    if register.games[game] == nil do
+      {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true})
+      put_in(register.games[game], %{gamepid: pid, players: %{}})
+    else
+      register
+    end
+  end
+
+  # def ensure_game_exists2(game) do
+  #   if Registry.lookup(Dixit.GameRegistry, game) == [] do
+  #     {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true, name: game})
+  # end
   
   @impl true
-  def handle_call({:name, name}, {pid, _}, register) do
-    if (Map.get(register, pid) != nil) do
-      {:reply, {:error, :duplicate_name_command}, register}
+  def handle_call({:join_game, game, name}, {pid, _}, register) do
+    existing_player? =
+      game in Map.keys(register.games) &&
+      name in Map.keys(register.games[game].players)
+
+    register =
+      register
+      |> ensure_game_exists(game)
+      |> put_in([:players, pid], %{name: name, game: game})
+      |> put_in([:games, game, :players, name], pid)
+
+    if existing_player? do
+      Logger.info("[GR] Existing player: #{name}")
+      state = Dixit.GameLogic.get_state(register.games[game].gamepid)
+      hand = state.hands[name]
+      {:reply, {:ok, state, hand}, register}
     else
-      register = put_in(register[pid], name)
-      {state, hand} =
-      if Dixit.GameLogic.has_player?(Dixit.GameLogic, name) do
-        IO.puts("[GR] Existing player: #{name}")
-        {Dixit.GameLogic.get_state(Dixit.GameLogic), nil}
-      else
-        IO.puts("[GR] New player: #{name} / #{inspect pid}")
-        {:ok, state, hand} = Dixit.GameLogic.new_player(Dixit.GameLogic, name)
-        broadcast_state(state, register, pid)
-        {state, hand}
-      end
+      Logger.info("[GR] New player: #{name} / #{inspect pid}")
+      {:ok, state, hand} = Dixit.GameLogic.new_player(register.games[game].gamepid, name)
+      broadcast_state(state, register, game, name)
       {:reply, {:ok, state, hand}, register}
     end
   end
 
   def handle_call(command, {pid, _}, register) do
-    case Map.get(register, pid) do
+    case register.players[pid] do
       nil -> {:reply, {:error, :no_name_yet}, register}
-      player ->
-        case Dixit.GameLogic.run_command(Dixit.GameLogic, player, command) do
+      %{name: name, game: game} ->
+        case Dixit.GameLogic.run_command(register.games[game].gamepid, name, command) do
           {:ok, state, hand} ->
-            broadcast_state(state, register, pid)
+            broadcast_state(state, register, game, name)
             hand = if hand == true do
-              broadcast_hands(state, register, pid)
-              state.hands[player]
+              broadcast_hands(state, register, game, name)
+              state.hands[name]
             else
               nil
             end
@@ -57,25 +84,28 @@ defmodule Dixit.GameRegister do
     end
   end
 
-  defp broadcast_state(state, register, origin_pid) do
-    Enum.each(register,
-      fn {pid, name} ->
-        if pid != origin_pid, do: GenServer.call(pid, {:send_state, state})
-      end)
-  end
-
-  defp broadcast_hands(state, register, origin_pid) do
-    Enum.each(state.hands,
-      fn {player, hand} ->
-        pid = Enum.find_value(register, fn {pid, name} -> name === player && pid end)
-        message = Dixit.Command.format({:cards, hand})
-        if pid != origin_pid do
-          GenServer.call(pid, {:send, message})
-        end
-      end)
-  end
-
   def run(command) do
     GenServer.call(Dixit.GameRegister, command)
+  end
+
+  # def run(command) do
+  #   case Registry.select(Dixit.PlayerRegistry, {{:_, :"$1", :"$2"}, [], [:"$1"]}) do
+  #     [] -> nil
+  #     [pid] ->
+
+  defp broadcast_state(state, register, game, name) do
+    Enum.each(register.games[game].players,
+      fn {player, pid} ->
+        if player != name, do: GenServer.call(pid, {:send_state, state})
+      end)
+  end
+
+  defp broadcast_hands(state, register, game, name) do
+    Enum.each(register.games[game].players,
+      fn {player, pid} ->
+        if player != name do
+          GenServer.call(pid, {:send, Dixit.Command.format({:cards, state.hands[name]})})
+        end
+      end)
   end
 end
