@@ -104,7 +104,7 @@ defmodule Dixit.GameRegister do
     Enum.each(register.games[game].players,
       fn {player, pid} ->
         if player != name && Process.alive?(pid) do
-          GenServer.call(pid, {:send, Dixit.Command.format({:cards, state.hands[name]})})
+          GenServer.call(pid, {:send, Dixit.Command.format({:cards, state.hands[player]})})
         end
       end)
   end
