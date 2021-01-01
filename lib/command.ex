@@ -38,7 +38,8 @@ defmodule Dixit.Command do
           selected: selected,
           phaseV: nil
         }
-      } -> ["TELLER #{teller}",
+      } -> [format({:players, state.players, state.scores}),
+           "TELLER #{teller}",
            "SELECTING #{all_nil(selected)}"]
 
       %{teller: teller,
@@ -49,7 +50,8 @@ defmodule Dixit.Command do
             phaseR: nil
           }
         }
-      } -> ["TELLER #{teller}",
+      } -> [format({:players, state.players, state.scores}),
+           "TELLER #{teller}",
            "VOTING #{Enum.join(candidates, " ")} #{all_nil(votes)}"]
 
       %{teller: teller,
