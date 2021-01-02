@@ -18,10 +18,9 @@ defmodule Dixit.Player do
     Logger.info("Hello from a player")
     if args.ws? do
       handshake(args.socket)
-      :inet.setopts(args.socket, packet: :raw, active: true)
-    else
-      :inet.setopts(args.socket, packet: :line, active: true)
     end
+    # Move to active mode and raw packets after the handshake
+    :inet.setopts(args.socket, packet: :raw, active: true)
     {:ok, Map.put(args, :buffer, "")}
   end
 
@@ -135,18 +134,26 @@ defmodule Dixit.Player do
   @impl true
   def handle_info({:tcp, _, data}, args) do
     buffer = args.buffer <> data
-    if args.ws? do
+    new_buffer = if args.ws? do
       case extract_frame(buffer) do
         {:incomplete_frame, buffer} ->
-          {:noreply, %{args | buffer: buffer}}
+          buffer
+
         {:ok, {:text_frame, message, buffer}} ->
           deal_with_message(message, args)
-          {:noreply, %{args | buffer: buffer}}
+          buffer
       end
     else
-      deal_with_message(buffer, args)
-      {:noreply, %{args | buffer: ""}}
+      case String.split(buffer, "\r\n", parts: 2) do
+        [buffer] -> # Incomplete message
+          buffer
+
+        [message, buffer] ->
+          deal_with_message(message, args)
+          buffer
+      end
     end
+    {:noreply, %{args | buffer: new_buffer}}
   end
 
   # Decode masked data
@@ -214,8 +221,12 @@ defmodule Dixit.Player do
   # Encode data into a packet
   defp encode(data) do
     len = byte_size(data)
-    if (len >= 126), do: Logger.error("Unsupported packet size")
-    <<129, len>> <> data
+    cond do
+      len <= 125   -> <<129, len>> <> data
+      len <= 65536 -> <<129, 126, len::16>> <> data
+      # Technically incorrect for messages larger than ~10 EiB...
+      true         -> <<129, 127, len::64>> <> data
+    end
   end
 
   # Send data as a websocket packet
