@@ -8,7 +8,7 @@ defmodule Dixit.Command do
 
   ## Examples
 
-    iex> Dixit.Command.parse("JOINGAME 42 Guillaume\r\n")
+    iex> parse("JOINGAME 42 Guillaume\r\n")
     {:ok, {:join_game, "42", "Guillaume"}}
   """
   def parse(line) do
@@ -28,9 +28,11 @@ defmodule Dixit.Command do
 
   def format_state(state) do
     case state.phaseT do
+      nil -> [format_gameover(state.scores)]
+
       %{teller: teller,
         phaseS: nil
-      } -> [format({:players, state.players, state.scores}),
+      } -> [format_players(state.players, state.scores),
            "TELLING #{teller}"]
 
       %{teller: teller,
@@ -38,7 +40,7 @@ defmodule Dixit.Command do
           selected: selected,
           phaseV: nil
         }
-      } -> [format({:players, state.players, state.scores}),
+      } -> [format_players(state.players, state.scores),
            "TELLER #{teller}",
            "SELECTING #{all_nil(selected)}"]
 
@@ -50,7 +52,7 @@ defmodule Dixit.Command do
             phaseR: nil
           }
         }
-      } -> [format({:players, state.players, state.scores}),
+      } -> [format_players(state.players, state.scores),
            "TELLER #{teller}",
            "VOTING #{Enum.join(candidates, " ")} #{all_nil(votes)}"]
 
@@ -71,7 +73,7 @@ defmodule Dixit.Command do
         end
         ["TELLER #{teller}",
          "RESULTS #{candidates |> Enum.map(cmd_card) |> Enum.join(" ")}",
-         format({:players, state.players, state.scores}),
+         format_players(state.players, state.scores),
          "WAITING #{Enum.join(waiting, " ")}"]
     end
           
@@ -83,15 +85,35 @@ defmodule Dixit.Command do
     |> Enum.filter(fn k -> map[k] == nil end)
     |> Enum.join(" ")
   end
-  
-  def format({:players, players, scores}) do
-    fmt_scores = fn p ->
-      "#{p} #{scores[p]}"
-    end
+
+  @doc """
+
+    iex> format_gameover(%{"A" => 6, "B" => 2, "C" => 4, "D" => 1})
+    "GAMEFINISHED A 6 C 4 B 2 D 1"
+
+    iex> format_gameover(%{"A" => 5, "B" => 9, "C" => 2, "D" => 3, "E" => 7})
+    "GAMEFINISHED B 9 E 7 A 5 D 3 C 2"
+  """
+  def format_gameover(scores) do
+    fmt_scores = fn {p, s} -> "#{p} #{s}" end
+    cmp_scores = fn ({_, s}, {_, s2}) -> s >= s2 end
+    "GAMEFINISHED #{scores |> Enum.sort(cmp_scores) |> Enum.map(fmt_scores) |> Enum.join(" ")}"
+  end
+
+  @doc """
+    iex> format_players(["A", "C", "B"], %{"C" => 42, "B" => 2, "A" => 12})
+    "PLAYERS A 12 C 42 B 2"
+  """
+  def format_players(players, scores) do
+    fmt_scores = fn p -> "#{p} #{scores[p]}" end
     "PLAYERS #{players |> Enum.map(fmt_scores) |> Enum.join(" ")}"
   end
 
-  def format({:cards, hand}) do
-    Enum.reduce(hand, "CARDS", (fn k, acc -> "#{acc} #{k}" end))
+  @doc """
+    iex> format_hand([1, 3, 42, 2])
+    "CARDS 1 3 42 2"
+  """
+  def format_hand(hand) do
+    "CARDS #{hand |> Enum.map(&to_string/1) |> Enum.join(" ")}"
   end
 end

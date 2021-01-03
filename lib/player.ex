@@ -7,7 +7,7 @@ defmodule Dixit.Player do
   require Logger
 
   use Bitwise
-  use GenServer
+  use GenServer, restart: :temporary
 
   def start_link(args) do
     GenServer.start_link(__MODULE__, args)
@@ -20,7 +20,7 @@ defmodule Dixit.Player do
       handshake(args.socket)
     end
     # Move to active mode and raw packets after the handshake
-    :inet.setopts(args.socket, packet: :raw, active: true)
+    :ok = :inet.setopts(args.socket, packet: :raw, active: true)
     {:ok, Map.put(args, :buffer, "")}
   end
 
@@ -37,18 +37,6 @@ defmodule Dixit.Player do
     {:reply, :ok, args}
   end
 
-  defp send_commands(command, args) do
-    cond do
-      is_list(command) -> Enum.each(command, &send_commands(&1, args))
-      true -> send_message(Dixit.Command.format(command), args)
-    end
-  end
-
-  def send_command(command, id) do
-    message = Dixit.Command.format(command)
-    GenServer.call(id, {:send, message})
-  end
-
   def send_message(data, args) do
     cond do
       is_list(data) -> Enum.each(data, &send_message(&1, args))
@@ -63,7 +51,7 @@ defmodule Dixit.Player do
     with {:ok, command}     <- Dixit.Command.parse(message),
          {:ok, state, hand} <- Dixit.GameRegister.run(command) do
       send_message(Dixit.Command.format_state(state), args)
-      if hand !== nil && hand !== true, do: send_commands({:cards, hand}, args)
+      if hand !== nil && hand !== true, do: send_message(Dixit.Command.format_hand(hand), args)
       :ok
     else
       {:error, e} -> send_message("ERROR #{e}", args)
@@ -75,54 +63,58 @@ defmodule Dixit.Player do
 
   # Do the websocket handshake
   defp handshake(socket, key \\ nil) do
-    line = read_line(socket)
-    case line do
-      # Ignore known headers
-      "GET / HTTP/1.1"                  -> handshake(socket, key)
-      "Host: " <> _                     -> handshake(socket, key)
-      "Connection: Upgrade"             -> handshake(socket, key)
-      "Connection: keep-alive, Upgrade" -> handshake(socket, key)
-      "Upgrade: websocket"              -> handshake(socket, key)
-      "Pragma: no-cache"                -> handshake(socket, key)
-      "Cache-Control: no-cache"         -> handshake(socket, key)
-      "User-Agent: " <> _               -> handshake(socket, key)
-      "Origin: " <> _                   -> handshake(socket, key)
-      "Accept-Encoding: " <> _          -> handshake(socket, key)
-      "Accept-Language: " <> _          -> handshake(socket, key)
-      "Accept: " <> _                   -> handshake(socket, key)
-      "Sec-WebSocket-Version: 13"       -> handshake(socket, key)
-      "Sec-WebSocket-Extensions: " <> _ -> handshake(socket, key)
+    with {:ok, line} <- read_line(socket) do
+      case line do
+        # Ignore known headers
+        "GET / HTTP/1.1"                  -> handshake(socket, key)
+        "Host: " <> _                     -> handshake(socket, key)
+        "Connection: Upgrade"             -> handshake(socket, key)
+        "Connection: keep-alive, Upgrade" -> handshake(socket, key)
+        "Upgrade: websocket"              -> handshake(socket, key)
+        "Pragma: no-cache"                -> handshake(socket, key)
+        "Cache-Control: no-cache"         -> handshake(socket, key)
+        "User-Agent: " <> _               -> handshake(socket, key)
+        "Origin: " <> _                   -> handshake(socket, key)
+        "Accept-Encoding: " <> _          -> handshake(socket, key)
+        "Accept-Language: " <> _          -> handshake(socket, key)
+        "Accept: " <> _                   -> handshake(socket, key)
+        "Sec-WebSocket-Version: 13"       -> handshake(socket, key)
+        "Sec-WebSocket-Extensions: " <> _ -> handshake(socket, key)
 
-      # Remember the key
-      "Sec-WebSocket-Key: " <> key      -> handshake(socket, key)
+        # Take note of the key
+        "Sec-WebSocket-Key: " <> key      -> handshake(socket, key)
 
-      "" ->  # Open the connection
-        webSocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-        response =
-          key
-          |> (&(&1 <> webSocketMagicString)).()
-          |> (&(:crypto.hash(:sha, &1))).()
-          |> Base.encode64()
+        "" ->  # Open the connection
+          webSocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+          response =
+            key
+            |> (&(&1 <> webSocketMagicString)).()
+            |> (&(:crypto.hash(:sha, &1))).()
+            |> Base.encode64()
 
-        Logger.debug("Connecting")
-        write_line("HTTP/1.1 101 Switching Protocols", socket)
-        write_line("Upgrade: websocket", socket)
-        write_line("Connection: Upgrade", socket)
-        write_line("Sec-WebSocket-Accept: #{response}", socket)
-        write_line("", socket)
+          Logger.debug("Connecting")
+          with :ok <- write_line("HTTP/1.1 101 Switching Protocols", socket),
+               :ok <- write_line("Upgrade: websocket", socket),
+               :ok <- write_line("Connection: Upgrade", socket),
+               :ok <- write_line("Sec-WebSocket-Accept: #{response}", socket),
+               :ok <- write_line("", socket) do
+            :ok
+          end
 
-      _ ->  # Ignore other headers
-        Logger.debug("Unknown header: #{line}")
-        handshake(socket, key)
+        _ ->  # Ignore other headers
+          Logger.warn("Unknown header: #{line}")
+          handshake(socket, key)
+      end
     end
   end
 
   # Read a single line in plain text (only used during the handshake)
   defp read_line(socket) do
-    {:ok, data} = :gen_tcp.recv(socket, 0)
-    data = String.trim(data)
-    Logger.debug(":recv #{inspect data}", pid: self())
-    data
+    with {:ok, data} <- :gen_tcp.recv(socket, 0) do
+      data = String.trim(data)
+      Logger.debug(":recv #{inspect data}")
+      {:ok, data}
+    end
   end
 
   # Write a single line in plain text
@@ -154,6 +146,11 @@ defmodule Dixit.Player do
       end
     end
     {:noreply, %{args | buffer: new_buffer}}
+  end
+
+  def handle_info({:tcp_closed, _}, args) do
+    Logger.warn("Client closed TCP connection")
+    {:stop, :normal, args}
   end
 
   # Decode masked data
@@ -192,7 +189,7 @@ defmodule Dixit.Player do
     iex> extract_frame(<<0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58>>)
     {:ok, {:text_frame, "Hello", ""}}
   """
-  defp extract_frame(buffer, mask_required \\ true) do
+  def extract_frame(buffer, mask_required \\ true) do
     with <<fin::1, rsv::3, opcode::4, mask?::1, len::7, buffer::binary>> <- buffer,
          len_size = %{126 => 2, 127 => 8}[len] || 0,
          <<new_len::binary-size(len_size), buffer::binary>> <- buffer,
@@ -224,7 +221,7 @@ defmodule Dixit.Player do
     cond do
       len <= 125   -> <<129, len>> <> data
       len <= 65536 -> <<129, 126, len::16>> <> data
-      # Technically incorrect for messages larger than ~10 EiB...
+      # Technically incorrect for messages larger than ~9 EiB...
       true         -> <<129, 127, len::64>> <> data
     end
   end

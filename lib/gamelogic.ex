@@ -3,11 +3,9 @@ defmodule Dixit.GameLogic do
   Implementation of the game logic.
   """
 
-  use GenServer
+  use GenServer, restart: :temporary
 
   require Logger
-
-  @deckSize 106
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, opts)
@@ -19,7 +17,8 @@ defmodule Dixit.GameLogic do
   def init(opts) do
     Logger.info("Hello from a logic")
     # Registry.register(Dixit.GameRegistry, opts[:game], nil)
-    deck = if opts[:random], do: Enum.shuffle(1..@deckSize), else: Enum.to_list(1..@deckSize)
+    deck_size = opts[:deck_size]
+    deck = if opts[:random], do: Enum.shuffle(1..deck_size), else: Enum.to_list(1..deck_size)
     initial_state = %{
       players: [],
       scores: %{},
@@ -212,7 +211,7 @@ defmodule Dixit.GameLogic do
             state = put_in(state.phaseT.phaseS.phaseV.phaseR.waiting, (for p <- waiting, p !== player, do: p))
             {state, newround} = if state.phaseT.phaseS.phaseV.phaseR.waiting === [] do
               # New round
-              {next_round(state), true}
+              next_round(state)
             else
               {state, nil}
             end
@@ -252,13 +251,12 @@ defmodule Dixit.GameLogic do
           {:ok, deck, Map.put(new_hands, player, new_hand)})
 
         _ , _ ->
-          Logger.warn("Exhausted deck")
+          Logger.info("Exhausted deck!")
           :exhausted_deck
       end)
     case new_hands do
-      {:ok, deck, hands} ->
-        %{
-          players: state.players,
+      {:ok, deck, hands} -> {
+        %{players: state.players,
           scores: state.scores,
           hands: hands,
           deck: deck,
@@ -266,15 +264,15 @@ defmodule Dixit.GameLogic do
             teller: next_in_list(state.players, state.phaseT.teller),
             phaseS: nil
           }
-        }
-      :exhausted_deck ->
+         }, true}
+      :exhausted_deck -> {
         %{
           players: state.players,
           scores: state.scores,
           hands: state.hands,
           deck: [],
           phaseT: nil
-        }
+        }, nil}
     end
   end
 

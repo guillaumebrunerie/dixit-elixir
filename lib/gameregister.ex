@@ -28,7 +28,7 @@ defmodule Dixit.GameRegister do
 
   def ensure_game_exists(register, game) do
     if register.games[game] == nil do
-      {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true})
+      {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true, deck_size: 106})
       put_in(register.games[game], %{gamepid: pid, players: %{}})
     else
       register
@@ -104,7 +104,7 @@ defmodule Dixit.GameRegister do
     Enum.each(register.games[game].players,
       fn {player, pid} ->
         if player != name && Process.alive?(pid) do
-          GenServer.call(pid, {:send, Dixit.Command.format({:cards, state.hands[player]})})
+          GenServer.call(pid, {:send, Dixit.Command.format_hand(state.hands[player])})
         end
       end)
   end
