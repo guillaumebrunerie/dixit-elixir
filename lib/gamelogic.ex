@@ -7,6 +7,8 @@ defmodule Dixit.GameLogic do
 
   require Logger
 
+  @timeout Application.get_env(:dixit, :timeout, 3_600_000)
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, opts)
   end
@@ -27,19 +29,19 @@ defmodule Dixit.GameLogic do
       phaseT: nil,
     }
 
-    {:ok, initial_state}
+    {:ok, initial_state, @timeout}
   end
 
   @impl true
   def handle_call({:get_state}, _, state) do
-    {:reply, state, state}
+    {:reply, state, state, @timeout}
   end
 
   @impl true
   def handle_call({:new_player, name}, _, state) do
     {hand, deck} = Enum.split(state.deck, 6)
     if length(hand) < 6 do
-      {:reply, {:error, :no_more_cards}, state}
+      {:reply, {:error, :no_more_cards}, state, @timeout}
     else
       state =
         state
@@ -48,7 +50,7 @@ defmodule Dixit.GameLogic do
         |> put_in([:deck], deck)
         |> update_in([:players], &(&1 ++ [name]))
         |> update_in([:phaseT], &(&1 || %{teller: name, phaseS: nil}))
-      {:reply, {:ok, state, hand}, state}
+      {:reply, {:ok, state, hand}, state, @timeout}
     end
   end
 
@@ -56,10 +58,17 @@ defmodule Dixit.GameLogic do
   def handle_call({:command, name, command}, _, state) do
     case run(state, name, command) do
       {:ok, new_state, hand} ->
-        {:reply, {:ok, new_state, hand}, new_state}
+        {:reply, {:ok, new_state, hand}, new_state, @timeout}
       {:error, error} ->
-        {:reply, {:error, error}, state}
+        {:reply, {:error, error}, state, @timeout}
     end
+  end
+
+  @impl true
+  def handle_info(:timeout, state) do
+    Logger.warn("Game timed out")
+    # TODO: close all players
+    {:stop, :normal, state}
   end
 
 

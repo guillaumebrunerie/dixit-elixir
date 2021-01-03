@@ -108,4 +108,7 @@ defmodule Dixit.GameRegister do
         end
       end)
   end
+
+  # defp broadcast_timeout(state, register, game) do
+  # end
 end
