@@ -26,8 +26,8 @@ defmodule Dixit.GameLogic do
       scores: %{},
       hands: %{},
       deck: deck,
-      phaseT: nil,
-#      random: opts[:random]
+      phaseT: nil
+      # random: opts[:random]
     }
 
     {:ok, initial_state, @timeout}
@@ -41,6 +41,7 @@ defmodule Dixit.GameLogic do
   @impl true
   def handle_call({:new_player, name}, _, state) do
     {hand, deck} = Enum.split(state.deck, 6)
+
     if length(hand) < 6 do
       {:reply, {:error, :no_more_cards}, state, @timeout}
     else
@@ -51,6 +52,7 @@ defmodule Dixit.GameLogic do
         |> put_in([:deck], deck)
         |> update_in([:players], &(&1 ++ [name]))
         |> update_in([:phaseT], &(&1 || %{teller: name, phaseS: nil}))
+
       {:reply, {:ok, state}, state, @timeout}
     end
   end
@@ -60,6 +62,7 @@ defmodule Dixit.GameLogic do
     case run(state, name, command) do
       {:ok, new_state, to_broadcast} ->
         {:reply, :ok, new_state, {:continue, {:broadcast, to_broadcast}}}
+
       {:error, error} ->
         {:reply, {:error, error}, state, @timeout}
     end
@@ -67,7 +70,7 @@ defmodule Dixit.GameLogic do
 
   @impl true
   def handle_continue({:broadcast, to_broadcast}, state) do
-    Enum.each(to_broadcast, &(Dixit.GameRegister.broadcast({&1, state})))
+    Enum.each(to_broadcast, &Dixit.GameRegister.broadcast({&1, state}))
     # Always broadcast the new state
     Dixit.GameRegister.broadcast({:state, state})
     {:noreply, state, @timeout}
@@ -79,7 +82,6 @@ defmodule Dixit.GameLogic do
     # TODO: close all players
     {:stop, :normal, state}
   end
-
 
   ## Nicer interface
 
@@ -95,9 +97,8 @@ defmodule Dixit.GameLogic do
     GenServer.call(logic, {:command, name, command})
   end
 
-
   ## The actual game functions acting on the state
-  
+
   def run(state, player, {:tell, card}) do
     case state.phaseT do
       %{teller: teller, phaseS: nil} ->
@@ -110,7 +111,7 @@ defmodule Dixit.GameLogic do
 
           true ->
             other_players = Enum.filter(state.players, &(&1 != teller))
-            selected = Map.new(other_players, &({&1, nil}))
+            selected = Map.new(other_players, &{&1, nil})
             state = put_in(state.phaseT.phaseS, %{answer: card, selected: selected, phaseV: nil})
             {:ok, state, []}
         end
@@ -119,10 +120,11 @@ defmodule Dixit.GameLogic do
         {:error, :wrong_game_state}
     end
   end
-  
+
   def run(state, player, {:select, card}) do
     case state.phaseT do
-      %{teller: teller,
+      %{
+        teller: teller,
         phaseS: %{
           answer: answer,
           selected: selected,
@@ -139,16 +141,18 @@ defmodule Dixit.GameLogic do
           true ->
             state = put_in(state.phaseT.phaseS.selected[player], card)
             selected = state.phaseT.phaseS.selected
+
             if has_nil(selected) do
               {:ok, state, []}
             else
               # Everyone selected a card
               candidates = Enum.shuffle([answer | Map.values(selected)])
               votes = for p <- state.players, p != teller, into: %{}, do: {p, nil}
-              {:ok, put_in(state.phaseT.phaseS.phaseV,
-                  %{candidates: candidates,
-                    votes: votes,
-                    phaseR: nil}), [:candidates]}
+              {:ok,
+               put_in(
+                 state.phaseT.phaseS.phaseV,
+                 %{candidates: candidates, votes: votes, phaseR: nil}
+               ), [:candidates]}
             end
         end
 
@@ -159,15 +163,16 @@ defmodule Dixit.GameLogic do
 
   def run(state, player, {:vote, card}) do
     case state.phaseT do
-      %{teller: teller,
+      %{
+        teller: teller,
         phaseS: %{
-           answer: answer,
-           selected: selected,
-           phaseV: %{
-             candidates: candidates,
-             votes: votes,
-             phaseR: nil
-           }
+          answer: answer,
+          selected: selected,
+          phaseV: %{
+            candidates: candidates,
+            votes: votes,
+            phaseR: nil
+          }
         }
       } ->
         cond do
@@ -183,12 +188,14 @@ defmodule Dixit.GameLogic do
           true ->
             state = put_in(state.phaseT.phaseS.phaseV.votes[player], card)
             votes = state.phaseT.phaseS.phaseV.votes
+
             if has_nil(votes) do
               {:ok, state, []}
             else
               # Everyone has voted, this function computes the origin and the votes of a card
               evaluate = fn card ->
-                origin = if card == answer do
+                origin =
+                  if card == answer do
                     teller
                   else
                     selected
@@ -199,28 +206,34 @@ defmodule Dixit.GameLogic do
                 votes =
                   votes
                   |> Enum.filter(fn {_, v} -> v == card end)
-                  |> Enum.map(&elem(&1,0))
+                  |> Enum.map(&elem(&1, 0))
 
                 {card, %{origin: origin, votes: votes}}
               end
 
               state =
-                compute_scores(put_in(state.phaseT.phaseS.phaseV.phaseR,
-                      %{results: Map.new(candidates, evaluate),
-                        waiting: state.players}))
+                compute_scores(
+                  put_in(
+                    state.phaseT.phaseS.phaseV.phaseR,
+                    %{results: Map.new(candidates, evaluate), waiting: state.players}
+                  )
+                )
               {:ok, state, [:results, :players]}
             end
         end
-      _ -> {:error, :wrong_game_state}
+
+      _ ->
+        {:error, :wrong_game_state}
     end
   end
 
   def run(state, player, {:nextround}) do
     case state.phaseT do
-      %{phaseS: %{
+      %{
+        phaseS: %{
           phaseV: %{
             phaseR: %{
-              waiting: waiting,
+              waiting: waiting
             }
           }
         }
@@ -228,14 +241,22 @@ defmodule Dixit.GameLogic do
         cond do
           player not in waiting ->
             {:error, :already_clicked_next_round}
+
           true ->
-            state = put_in(state.phaseT.phaseS.phaseV.phaseR.waiting, (for p <- waiting, p !== player, do: p))
-            state = if state.phaseT.phaseS.phaseV.phaseR.waiting === [] do
-              # New round
-              next_round(state)
-            else
-              state
-            end
+            state =
+              put_in(
+                state.phaseT.phaseS.phaseV.phaseR.waiting,
+                for(p <- waiting, p !== player, do: p)
+              )
+
+            state =
+              if state.phaseT.phaseS.phaseV.phaseR.waiting === [] do
+                # New round
+                next_round(state)
+              else
+                state
+              end
+
             {:ok, state, []}
         end
       _ ->
@@ -250,7 +271,7 @@ defmodule Dixit.GameLogic do
   end
 
   defp next_in_list([p1 | [p2 | rest]], p, first) do
-    if (p === p1) do
+    if p === p1 do
       p2
     else
       next_in_list([p2 | rest], p, first || p1)
@@ -258,26 +279,35 @@ defmodule Dixit.GameLogic do
   end
 
   def has_nil(map) do
-    map |> Map.values |> Enum.member?(nil)
+    map |> Map.values() |> Enum.member?(nil)
   end
 
   def next_round(state) do
     teller = state.phaseT.teller
     answer = state.phaseT.phaseS.answer
     selected = state.phaseT.phaseS.selected
-    new_hands = state.hands |> Enum.reduce(
-      {:ok, state.deck, %{}},
-      fn {player, hand}, {:ok, [card | deck], new_hands} -> (
-          new_hand = [card | List.delete(hand, (if player === teller, do: answer, else: selected[player]))]
-          {:ok, deck, Map.put(new_hands, player, new_hand)})
+    new_hands =
+      state.hands
+      |> Enum.reduce(
+        {:ok, state.deck, %{}},
+        fn
+          {player, hand}, {:ok, [card | deck], new_hands} ->
+            new_hand = [
+              card | List.delete(hand, if(player === teller, do: answer, else: selected[player]))
+            ]
 
-        _ , _ ->
-          Logger.info("Exhausted deck!")
-          :exhausted_deck
-      end)
+          {:ok, deck, Map.put(new_hands, player, new_hand)}
+
+          _ , _ ->
+            Logger.info("Exhausted deck!")
+            :exhausted_deck
+        end
+      )
+
     case new_hands do
       {:ok, deck, hands} ->
-        %{players: state.players,
+        %{
+          players: state.players,
           scores: state.scores,
           hands: hands,
           deck: deck,
@@ -285,7 +315,8 @@ defmodule Dixit.GameLogic do
             teller: next_in_list(state.players, state.phaseT.teller),
             phaseS: nil
           }
-         }
+        }
+
       :exhausted_deck ->
         %{
           players: state.players,
@@ -304,16 +335,15 @@ defmodule Dixit.GameLogic do
     results = state.phaseT.phaseS.phaseV.phaseR.results
     votes_for_teller = length(results[answer].votes)
     well_done = votes_for_teller > 0 && votes_for_teller < length(state.players) - 1
+
     scores =
-      Map.new(state.scores, fn {player, score} -> {
-        player,
-        score +
-          if(well_done && (player === teller || player in results[answer].votes),
-              do: 3, else: 0) +
-          if(!well_done && player !== teller,
-              do: 2, else: 0) +
-          if(player !== teller,
-              do: length(results[selected[player]].votes), else: 0)
+      Map.new(state.scores, fn {player, score} ->
+        {
+          player,
+          score +
+            if(well_done && (player === teller || player in results[answer].votes), do: 3, else: 0) +
+            if(!well_done && player !== teller, do: 2, else: 0) +
+            if(player !== teller, do: length(results[selected[player]].votes), else: 0)
         }
       end)
 

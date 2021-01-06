@@ -6,7 +6,7 @@ defmodule Dixit.Application do
   use Application
 
   require Logger
-  
+
   @doc """
   Entry point of the server.
   Starts
@@ -22,7 +22,7 @@ defmodule Dixit.Application do
       # {Registry, keys: :duplicate, name: Dixit.PlayersRegistry},
       {DynamicSupervisor, strategy: :one_for_one, name: Dixit.PlayerSupervisor},
       {Dixit.NetworkListener, port: 4020, ws?: true},
-      {Dixit.NetworkListener, port: 4000, ws?: false},
+      {Dixit.NetworkListener, port: 4000, ws?: false}
     ]
 
     opts = [strategy: :rest_for_one, name: Dixit.MainSupervisor]

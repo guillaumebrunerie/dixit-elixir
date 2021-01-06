@@ -110,8 +110,8 @@ defmodule Dixit.Player do
             :ok
           end
 
-          # Ignore other headers
-          _ ->
+        # Ignore other headers
+        _ ->
           Logger.warn("Unknown header: #{line}")
           handshake(socket, key)
       end
@@ -138,25 +138,26 @@ defmodule Dixit.Player do
   @impl true
   def handle_info({:tcp, _, data}, args) do
     buffer = args.buffer <> data
-    new_buffer = if args.ws? do
-      case extract_frame(buffer) do
-        {:incomplete_frame, buffer} ->
-          buffer
+    new_buffer =
+      if args.ws? do
+        case extract_frame(buffer) do
+          {:incomplete_frame, buffer} ->
+            buffer
 
-        {:ok, {:text_frame, message, buffer}} ->
-          deal_with_message(message, args)
-          buffer
-      end
-    else
-      case String.split(buffer, "\r\n", parts: 2) do
-        [buffer] -> # Incomplete message
-          buffer
+          {:ok, {:text_frame, message, buffer}} ->
+            deal_with_message(message, args)
+            buffer
+        end
+      else
+        case String.split(buffer, "\r\n", parts: 2) do
+          [buffer] -> # Incomplete message
+            buffer
 
-        [message, buffer] ->
-          deal_with_message(message, args)
-          buffer
+          [message, buffer] ->
+            deal_with_message(message, args)
+            buffer
+        end
       end
-    end
     {:noreply, %{args | buffer: new_buffer}}
   end
 
@@ -171,15 +172,17 @@ defmodule Dixit.Player do
   defp decode(payload, "", _) do
     payload
   end
-  
+
   defp decode("", _, acc) do
     acc
   end
 
   defp decode(<<byte, rest::binary>>, <<mhead, mtail::binary>>, acc) do
-    decode(rest,
+    decode(
+      rest,
       mtail <> <<mhead>>,
-      acc <> <<byte ^^^ mhead>>)
+      acc <> <<byte ^^^ mhead>>
+    )
   end
 
   @doc """
@@ -201,7 +204,11 @@ defmodule Dixit.Player do
     iex> extract_frame(<<0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58>>)
     {:ok, {:text_frame, "Hello", ""}}
   """
-  @spec extract_frame(binary, boolean) :: {:ok, {atom, binary, binary}} | {:incomplete_frame, binary} | {:invalid_frame, atom} | {:not_implemented_yet, atom}
+  @spec extract_frame(binary, boolean) ::
+          {:ok, {atom, binary, binary}}
+          | {:incomplete_frame, binary}
+          | {:invalid_frame, atom}
+          | {:not_implemented_yet, atom}
   def extract_frame(buffer, mask_required \\ true) do
     with <<fin::1, rsv::3, opcode::4, mask?::1, len::7, buffer::binary>> <- buffer,
          len_size = %{126 => 2, 127 => 8}[len] || 0,
@@ -210,6 +217,7 @@ defmodule Dixit.Player do
          mask_size = if(mask? == 1, do: 4, else: 0),
          <<mask::binary-size(mask_size), payload::binary-size(len), buffer::binary>> <- buffer do
       message = decode(payload, mask)
+
       cond do
         fin == 0     -> {:not_implemented_yet, :continuation_frame}
         rsv != 0     -> {:invalid_frame, :rsv_non_zero}
@@ -232,6 +240,7 @@ defmodule Dixit.Player do
   @spec encode(binary) :: binary
   defp encode(data) do
     len = byte_size(data)
+
     cond do
       len <= 125   -> <<129, len>> <> data
       len <= 65536 -> <<129, 126, len::16>> <> data
