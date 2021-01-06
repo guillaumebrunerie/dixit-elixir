@@ -32,8 +32,8 @@ defmodule Dixit.Player do
   end
 
   @impl true
-  def handle_call({:send_state, state}, _from, args) do
-    send_message(Dixit.Command.format_state(state), args)
+  def handle_call({:send, item, state, player}, _from, args) do
+    send_message(Dixit.Command.format({item, state, player}), args)
     {:reply, :ok, args}
   end
 
@@ -48,11 +48,12 @@ defmodule Dixit.Player do
   # Received a message from the player
   def deal_with_message(message, args) do
     Logger.debug(":r #{message}")
-    with {:ok, command}     <- Dixit.Command.parse(message),
-         {:ok, state, hand} <- Dixit.GameRegister.run(command) do
-      send_message(Dixit.Command.format_state(state), args)
-      if hand !== nil && hand !== true, do: send_message(Dixit.Command.format_hand(hand), args)
-      :ok
+    with {:ok, command} <- Dixit.Command.parse(message) do
+      case Dixit.GameRegister.run(command) do
+        {:ok, state, player} -> send_message(Dixit.Command.format_state(state, player, true), args)
+        :ok -> :ok
+        {:error, e} -> send_message("ERROR #{e}", args)
+      end
     else
       {:error, e} -> send_message("ERROR #{e}", args)
     end
@@ -109,7 +110,8 @@ defmodule Dixit.Player do
   end
 
   # Read a single line in plain text (only used during the handshake)
-  defp read_line(socket) do
+  @spec read_line(port) :: {:ok, binary} | {:error, atom}
+  defp read_line(socket) when is_port(socket) do
     with {:ok, data} <- :gen_tcp.recv(socket, 0) do
       data = String.trim(data)
       Logger.debug(":recv #{inspect data}")
@@ -118,9 +120,10 @@ defmodule Dixit.Player do
   end
 
   # Write a single line in plain text
-  defp write_line(line, socket, terminator \\ "\r\n") do
-    Logger.debug(":send #{line}")
-    :gen_tcp.send(socket, "#{line}#{terminator}")
+  @spec write_line(String.t, port) :: :ok | {:error, atom}
+  defp write_line(line, socket, terminator \\ "\r\n") when is_port(socket) do
+    Logger.debug(":send " <> line)
+    :gen_tcp.send(socket, line <> terminator)
   end
 
   @impl true
@@ -189,6 +192,7 @@ defmodule Dixit.Player do
     iex> extract_frame(<<0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58>>)
     {:ok, {:text_frame, "Hello", ""}}
   """
+  @spec extract_frame(binary, boolean) :: {:ok, {atom, binary, binary}} | {:incomplete_frame, binary} | {:invalid_frame, atom} | {:not_implemented_yet, atom}
   def extract_frame(buffer, mask_required \\ true) do
     with <<fin::1, rsv::3, opcode::4, mask?::1, len::7, buffer::binary>> <- buffer,
          len_size = %{126 => 2, 127 => 8}[len] || 0,
@@ -216,6 +220,7 @@ defmodule Dixit.Player do
   end
 
   # Encode data into a packet
+  @spec encode(binary) :: binary
   defp encode(data) do
     len = byte_size(data)
     cond do
@@ -227,7 +232,8 @@ defmodule Dixit.Player do
   end
 
   # Send data as a websocket packet
-  defp write_packet(data, socket) do
+  @spec write_packet(binary, port) :: :ok | {:error, atom}
+  defp write_packet(data, socket) when is_port(socket) do
     Logger.debug(":s #{data}")
     :gen_tcp.send(socket, encode(data))
   end

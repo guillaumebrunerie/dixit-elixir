@@ -52,33 +52,39 @@ defmodule Dixit.GameRegister do
       |> put_in([:players, pid], %{name: name, game: game})
       |> put_in([:games, game, :players, name], pid)
 
-    if existing_player? do
+    state = if existing_player? do
       Logger.info("[GR] Existing player: #{name}")
-      state = Dixit.GameLogic.get_state(register.games[game].gamepid)
-      hand = state.hands[name]
-      {:reply, {:ok, state, hand}, register}
+      Dixit.GameLogic.get_state(register.games[game].gamepid)
     else
       Logger.info("[GR] New player: #{name} / #{inspect pid}")
-      {:ok, state, hand} = Dixit.GameLogic.new_player(register.games[game].gamepid, name)
-      broadcast_state(state, register, game, name)
-      {:reply, {:ok, state, hand}, register}
+      {:ok, state} = Dixit.GameLogic.new_player(register.games[game].gamepid, name)
+      Enum.each(register.games[game].players,
+        fn {player, pid} ->
+          if player !== name && Process.alive?(pid), do: GenServer.call(pid, {:send, :players, state, nil})
+        end)
+      state
     end
+    {:reply, {:ok, state, name}, register}
   end
 
+  @impl true
+  def handle_call({:broadcast, item, state}, {pid, _}, register) do
+    {game, _} = Enum.find(register.games, fn {_, g} -> g.gamepid == pid end)
+    Enum.each(register.games[game].players,
+      fn {player, pid} ->
+        if Process.alive?(pid), do: GenServer.call(pid, {:send, item, state, player})
+      end)
+    {:reply, :ok, register}
+  end
+
+  @impl true
   def handle_call(command, {pid, _}, register) do
     case register.players[pid] do
       nil -> {:reply, {:error, :no_name_yet}, register}
       %{name: name, game: game} ->
         case Dixit.GameLogic.run_command(register.games[game].gamepid, name, command) do
-          {:ok, state, hand} ->
-            broadcast_state(state, register, game, name)
-            hand = if hand == true do
-              broadcast_hands(state, register, game, name)
-              state.hands[name]
-            else
-              nil
-            end
-            {:reply, {:ok, state, hand}, register}
+          :ok ->
+            {:reply, :ok, register}
           {:error, e} -> {:reply, {:error, e}, register}
         end
     end
@@ -93,22 +99,7 @@ defmodule Dixit.GameRegister do
   #     [] -> nil
   #     [pid] ->
 
-  defp broadcast_state(state, register, game, name) do
-    Enum.each(register.games[game].players,
-      fn {player, pid} ->
-        if player != name && Process.alive?(pid), do: GenServer.call(pid, {:send_state, state})
-      end)
+  def broadcast({item, state}) do
+    GenServer.call(Dixit.GameRegister, {:broadcast, item, state})
   end
-
-  defp broadcast_hands(state, register, game, name) do
-    Enum.each(register.games[game].players,
-      fn {player, pid} ->
-        if player != name && Process.alive?(pid) do
-          GenServer.call(pid, {:send, Dixit.Command.format_hand(state.hands[player])})
-        end
-      end)
-  end
-
-  # defp broadcast_timeout(state, register, game) do
-  # end
 end
