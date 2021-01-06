@@ -47,7 +47,7 @@ defmodule Dixit.Player do
 
   # Received a message from the player
   def deal_with_message(message, args) do
-    Logger.debug(":r #{message}")
+    Logger.debug(":recv #{message}")
     with {:ok, command} <- Dixit.Command.parse(message) do
       case Dixit.GameRegister.run(command) do
         {:ok, state, player} -> send_message(Dixit.Command.format_state(state, player, true), args)
