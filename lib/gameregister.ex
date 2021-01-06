@@ -39,7 +39,7 @@ defmodule Dixit.GameRegister do
   #   if Registry.lookup(Dixit.GameRegistry, game) == [] do
   #     {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true, name: game})
   # end
-  
+
   @impl true
   def handle_call({:join_game, game, name}, {pid, _}, register) do
     existing_player? =
@@ -69,11 +69,15 @@ defmodule Dixit.GameRegister do
 
   @impl true
   def handle_call({:broadcast, item, state}, {pid, _}, register) do
-    {game, _} = Enum.find(register.games, fn {_, g} -> g.gamepid == pid end)
-    Enum.each(register.games[game].players,
-      fn {player, pid} ->
-        if Process.alive?(pid), do: GenServer.call(pid, {:send, item, state, player})
-      end)
+    case Enum.find(register.games, fn {_, g} -> g.gamepid == pid end) do
+      {game, _} ->
+        Enum.each(register.games[game].players,
+          fn {player, pid} ->
+            if Process.alive?(pid), do: GenServer.call(pid, {:send, item, state, player})
+          end)
+      _ ->
+        Logger.warn("No game found")
+    end
     {:reply, :ok, register}
   end
 
