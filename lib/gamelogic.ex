@@ -67,9 +67,7 @@ defmodule Dixit.GameLogic do
 
   @impl true
   def handle_continue({:broadcast, to_broadcast}, state) do
-    if (to_broadcast !== nil) do
-      Dixit.GameRegister.broadcast({to_broadcast, state})
-    end
+    Enum.each(to_broadcast, &(Dixit.GameRegister.broadcast({&1, state})))
     # Always broadcast the new state
     Dixit.GameRegister.broadcast({:state, state})
     {:noreply, state, @timeout}
@@ -114,7 +112,7 @@ defmodule Dixit.GameLogic do
             other_players = Enum.filter(state.players, &(&1 != teller))
             selected = Map.new(other_players, &({&1, nil}))
             state = put_in(state.phaseT.phaseS, %{answer: card, selected: selected, phaseV: nil})
-            {:ok, state, nil}
+            {:ok, state, []}
         end
 
       _ ->
@@ -142,7 +140,7 @@ defmodule Dixit.GameLogic do
             state = put_in(state.phaseT.phaseS.selected[player], card)
             selected = state.phaseT.phaseS.selected
             if has_nil(selected) do
-              {:ok, state, nil}
+              {:ok, state, []}
             else
               # Everyone selected a card
               candidates = Enum.shuffle([answer | Map.values(selected)])
@@ -150,7 +148,7 @@ defmodule Dixit.GameLogic do
               {:ok, put_in(state.phaseT.phaseS.phaseV,
                   %{candidates: candidates,
                     votes: votes,
-                    phaseR: nil}), :candidates}
+                    phaseR: nil}), [:candidates]}
             end
         end
 
@@ -186,7 +184,7 @@ defmodule Dixit.GameLogic do
             state = put_in(state.phaseT.phaseS.phaseV.votes[player], card)
             votes = state.phaseT.phaseS.phaseV.votes
             if has_nil(votes) do
-              {:ok, state, nil}
+              {:ok, state, []}
             else
               # Everyone has voted, this function computes the origin and the votes of a card
               evaluate = fn card ->
@@ -210,7 +208,7 @@ defmodule Dixit.GameLogic do
                 compute_scores(put_in(state.phaseT.phaseS.phaseV.phaseR,
                       %{results: Map.new(candidates, evaluate),
                         waiting: state.players}))
-              {:ok, state, :results}
+              {:ok, state, [:results, :players]}
             end
         end
       _ -> {:error, :wrong_game_state}
@@ -238,7 +236,7 @@ defmodule Dixit.GameLogic do
             else
               state
             end
-            {:ok, state, nil}
+            {:ok, state, []}
         end
       _ ->
         {:error, :wrong_game_state}

@@ -71,11 +71,9 @@ defmodule Dixit.Command do
                           if(full?, do: ["CANDIDATES #{Enum.join(candidates, " ")}"], else: []) ++
                             ["VOTING #{all_nil(votes)}"]
 
-                        # ["VOTING #{Enum.join(candidates, " ")} #{all_nil(votes)}"]
-
                         # We are in RESULTS phase
                         %{results: _results, waiting: waiting} ->
-                          if(full?, do: format({:only_results, state, nil}), else: []) ++
+                          if(full?, do: format({:results, state, nil}), else: []) ++
                             if(full? && !(player in waiting), do: ["CLICKEDNEXTROUND"], else: []) ++
                             ["WAITING #{Enum.join(waiting, " ")}"]
                       end
@@ -127,7 +125,7 @@ defmodule Dixit.Command do
     ["CANDIDATES #{Enum.join(candidates, " ")}"]
   end
 
-  def format({:only_results, state, _}) do
+  def format({:results, state, _}) do
     candidates = state.phaseT.phaseS.phaseV.candidates
     results = state.phaseT.phaseS.phaseV.phaseR.results
 
@@ -137,11 +135,6 @@ defmodule Dixit.Command do
     end
 
     ["RESULTS #{candidates |> Enum.map(cmd_card) |> Enum.join(" ")}"]
-  end
-
-  def format({:results, state, _}) do
-    format({:players, state, nil}) ++
-    format({:only_results, state, nil})
   end
 
   def format({:state, state, player}) do
