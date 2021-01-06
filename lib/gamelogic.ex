@@ -179,6 +179,9 @@ defmodule Dixit.GameLogic do
           card != nil && card not in candidates ->
             {:error, :not_on_the_table}
 
+          card == selected[player] ->
+            {:error, :your_own_card}
+
           true ->
             state = put_in(state.phaseT.phaseS.phaseV.votes[player], card)
             votes = state.phaseT.phaseS.phaseV.votes

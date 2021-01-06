@@ -15,7 +15,7 @@ defmodule Dixit.GameRegister do
   use GenServer
 
   require Logger
-  
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, :ok, opts)
   end
