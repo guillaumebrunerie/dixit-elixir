@@ -28,7 +28,12 @@ defmodule Dixit.GameRegister do
 
   def ensure_game_exists(register, game) do
     if register.games[game] == nil do
-      {:ok, pid} = DynamicSupervisor.start_child(Dixit.GameLogicSupervisor, {Dixit.GameLogic, random: true, deck_size: 106})
+      {:ok, pid} =
+        DynamicSupervisor.start_child(
+          Dixit.GameLogicSupervisor,
+          {Dixit.GameLogic, random: true, deck_size: 106}
+        )
+
       put_in(register.games[game], %{gamepid: pid, players: %{}})
     else
       register
@@ -44,7 +49,7 @@ defmodule Dixit.GameRegister do
   def handle_call({:join_game, game, name}, {pid, _}, register) do
     existing_player? =
       game in Map.keys(register.games) &&
-      name in Map.keys(register.games[game].players)
+        name in Map.keys(register.games[game].players)
 
     register =
       register
@@ -52,18 +57,25 @@ defmodule Dixit.GameRegister do
       |> put_in([:players, pid], %{name: name, game: game})
       |> put_in([:games, game, :players, name], pid)
 
-    state = if existing_player? do
-      Logger.info("[GR] Existing player: #{name}")
-      Dixit.GameLogic.get_state(register.games[game].gamepid)
-    else
-      Logger.info("[GR] New player: #{name} / #{inspect pid}")
-      {:ok, state} = Dixit.GameLogic.new_player(register.games[game].gamepid, name)
-      Enum.each(register.games[game].players,
-        fn {player, pid} ->
-          if player !== name && Process.alive?(pid), do: GenServer.call(pid, {:send, :players, state, nil})
-        end)
-      state
-    end
+    state =
+      if existing_player? do
+        Logger.info("[GR] Existing player: #{name}")
+        Dixit.GameLogic.get_state(register.games[game].gamepid)
+      else
+        Logger.info("[GR] New player: #{name} / #{inspect(pid)}")
+        {:ok, state} = Dixit.GameLogic.new_player(register.games[game].gamepid, name)
+
+        Enum.each(
+          register.games[game].players,
+          fn {player, pid} ->
+            if player !== name && Process.alive?(pid),
+              do: GenServer.call(pid, {:send, :players, state, nil})
+          end
+        )
+
+        state
+      end
+
     {:reply, {:ok, state, name}, register}
   end
 
@@ -71,25 +83,33 @@ defmodule Dixit.GameRegister do
   def handle_call({:broadcast, item, state}, {pid, _}, register) do
     case Enum.find(register.games, fn {_, g} -> g.gamepid == pid end) do
       {game, _} ->
-        Enum.each(register.games[game].players,
+        Enum.each(
+          register.games[game].players,
           fn {player, pid} ->
             if Process.alive?(pid), do: GenServer.call(pid, {:send, item, state, player})
-          end)
+          end
+        )
+
       _ ->
         Logger.warn("No game found")
     end
+
     {:reply, :ok, register}
   end
 
   @impl true
   def handle_call(command, {pid, _}, register) do
     case register.players[pid] do
-      nil -> {:reply, {:error, :no_name_yet}, register}
+      nil ->
+        {:reply, {:error, :no_name_yet}, register}
+
       %{name: name, game: game} ->
         case Dixit.GameLogic.run_command(register.games[game].gamepid, name, command) do
           :ok ->
             {:reply, :ok, register}
-          {:error, e} -> {:reply, {:error, e}, register}
+
+          {:error, e} ->
+            {:reply, {:error, e}, register}
         end
     end
   end

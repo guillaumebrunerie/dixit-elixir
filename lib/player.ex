@@ -16,9 +16,11 @@ defmodule Dixit.Player do
   @impl true
   def init(args) do
     Logger.info("Hello from a player")
+
     if args.ws? do
       handshake(args.socket)
     end
+
     # Move to active mode and raw packets after the handshake
     :ok = :inet.setopts(args.socket, packet: :raw, active: true)
     {:ok, Map.put(args, :buffer, "")}
@@ -48,18 +50,23 @@ defmodule Dixit.Player do
   # Received a message from the player
   def deal_with_message(message, args) do
     Logger.debug(":recv #{message}")
+
     with {:ok, command} <- Dixit.Command.parse(message) do
       case Dixit.GameRegister.run(command) do
-        {:ok, state, player} -> send_message(Dixit.Command.format_state(state, player, true), args)
-        :ok -> :ok
-        {:error, e} -> send_message("ERROR #{e}", args)
+        {:ok, state, player} ->
+          send_message(Dixit.Command.format_state(state, player, true), args)
+
+        :ok ->
+          :ok
+
+        {:error, e} ->
+          send_message("ERROR #{e}", args)
       end
     else
       {:error, e} -> send_message("ERROR #{e}", args)
     end
   end
 
-  
   ## Network related functions
 
   # Do the websocket handshake
@@ -85,12 +92,13 @@ defmodule Dixit.Player do
         # Take note of the key
         "Sec-WebSocket-Key: " <> key      -> handshake(socket, key)
 
-        "" ->  # Open the connection
+        # Open the connection
+        "" ->
           webSocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
           response =
             key
             |> (&(&1 <> webSocketMagicString)).()
-            |> (&(:crypto.hash(:sha, &1))).()
+            |> (&:crypto.hash(:sha, &1)).()
             |> Base.encode64()
 
           Logger.debug("Connecting")
@@ -102,7 +110,8 @@ defmodule Dixit.Player do
             :ok
           end
 
-        _ ->  # Ignore other headers
+          # Ignore other headers
+          _ ->
           Logger.warn("Unknown header: #{line}")
           handshake(socket, key)
       end
@@ -114,13 +123,13 @@ defmodule Dixit.Player do
   defp read_line(socket) when is_port(socket) do
     with {:ok, data} <- :gen_tcp.recv(socket, 0) do
       data = String.trim(data)
-      Logger.debug(":recv #{inspect data}")
+      Logger.debug(":recv #{inspect(data)}")
       {:ok, data}
     end
   end
 
   # Write a single line in plain text
-  @spec write_line(String.t, port) :: :ok | {:error, atom}
+  @spec write_line(String.t(), port) :: :ok | {:error, atom}
   defp write_line(line, socket, terminator \\ "\r\n") when is_port(socket) do
     Logger.debug(":send " <> line)
     :gen_tcp.send(socket, line <> terminator)
