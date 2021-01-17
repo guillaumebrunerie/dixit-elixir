@@ -74,7 +74,6 @@ defmodule Dixit.Command do
                         # We are in RESULTS phase
                         %{results: _results, waiting: waiting} ->
                           if(full?, do: format({:results, state, nil}), else: []) ++
-                            if(full? && !(player in waiting), do: ["CLICKEDNEXTROUND"], else: []) ++
                             ["WAITING #{Enum.join(waiting, " ")}"]
                       end
                 end

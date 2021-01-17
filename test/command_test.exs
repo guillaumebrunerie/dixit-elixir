@@ -133,7 +133,7 @@ defmodule Dixit.CommandTest do
       ["WAITING S M"]
     assert format_state(state, "G", true) ==
       ["PLAYERS G 0 S 2 M 2", "CARDS 1 2 3 4 5 6", "TELLER G", "TOLD 3", results,
-       "CLICKEDNEXTROUND", "WAITING S M"]
+       "WAITING S M"]
     assert format_state(state, "M", false) ==
       ["WAITING S M"]
     assert format_state(state, "M", true) ==
@@ -152,7 +152,7 @@ defmodule Dixit.CommandTest do
       ["WAITING M"]
     assert format_state(state, "G", true) ==
       ["PLAYERS G 0 S 2 M 2", "CARDS 1 2 3 4 5 6", "TELLER G", "TOLD 3", results,
-       "CLICKEDNEXTROUND", "WAITING M"]
+       "WAITING M"]
     assert format_state(state, "M", false) ==
       ["WAITING M"]
     assert format_state(state, "M", true) ==
@@ -162,7 +162,7 @@ defmodule Dixit.CommandTest do
       ["WAITING M"]
     assert format_state(state, "S", true) ==
       ["PLAYERS G 0 S 2 M 2", "CARDS 7 8 9 10 11 12", "TELLER G", "SELECTED 10", "VOTED 3", results,
-       "CLICKEDNEXTROUND", "WAITING M"]
+       "WAITING M"]
 
     run_command(logic, "M", {:nextround})
     state = get_state(logic)
