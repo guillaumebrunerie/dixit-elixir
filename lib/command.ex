@@ -40,10 +40,12 @@ defmodule Dixit.Command do
       %{teller: teller, phaseS: phaseS} ->
         if(full?, do: format({:players, state, nil}), else: []) ++
           if(full?, do: format_hand(state.hands[player]), else: []) ++
+          if(full?, do: format({:deck, state, nil}), else: []) ++
           case phaseS do
             # We are in TELLING phase
             nil ->
               if(!full?, do: format_hand(state.hands[player]), else: []) ++
+              if(!full?, do: format({:deck, state, nil}), else: []) ++
                 ["TELLING #{teller}"]
 
             # We are in SELECTING phase or later
@@ -117,6 +119,11 @@ defmodule Dixit.Command do
   def format({:players, state, _}) do
     fmt_scores = fn p -> "#{p} #{state.scores[p]}" end
     ["PLAYERS #{state.players |> Enum.map(fmt_scores) |> Enum.join(" ")}"]
+	++ format({:deck, state, nil})
+  end
+
+  def format({:deck, state, _}) do
+    ["DECK #{length(state.deck)} 106"]
   end
 
   def format({:candidates, state, _}) do
