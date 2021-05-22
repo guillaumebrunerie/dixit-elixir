@@ -31,16 +31,19 @@ defmodule Dixit.NetworkListener do
   end
 
   defp loop_acceptor(listen_socket, ws?) do
-    {:ok, socket} = :gen_tcp.accept(listen_socket)
-
-    {:ok, pid} =
-      DynamicSupervisor.start_child(
-        Dixit.PlayerSupervisor,
-        {Dixit.Player, %{ws?: ws?, socket: socket}}
-      )
-
-    Logger.info("New client connected")
-    :ok = :gen_tcp.controlling_process(socket, pid)
+    with {:ok, socket} <- :gen_tcp.accept(listen_socket),
+         {:ok, pid} <-
+           DynamicSupervisor.start_child(
+             Dixit.PlayerSupervisor,
+             {Dixit.Player, %{ws?: ws?, socket: socket}}
+           ),
+         :ok <- Logger.info("New client connected"),
+         :ok <- :gen_tcp.controlling_process(socket, pid)
+    do
+      ;
+    else
+      {:error, err} -> Logger.warn("Error connecting to the client: #{err}")
+    end
     loop_acceptor(listen_socket, ws?)
   end
 end

@@ -17,13 +17,14 @@ defmodule Dixit.Player do
   def init(args) do
     Logger.info("Hello from a player")
 
-    if args.ws? do
-      handshake(args.socket)
+    with :ok <- if(args.ws?, do: handshake(args.socket), else: :ok),
+         # Move to active mode and raw packets after the handshake
+         :ok <- :inet.setopts(args.socket, packet: :raw, active: true)
+    do
+      {:ok, Map.put(args, :buffer, "")}
+    else
+      {:error, err} -> {:stop, err}
     end
-
-    # Move to active mode and raw packets after the handshake
-    :ok = :inet.setopts(args.socket, packet: :raw, active: true)
-    {:ok, Map.put(args, :buffer, "")}
   end
 
   # Received a message from the server
@@ -94,20 +95,25 @@ defmodule Dixit.Player do
 
         # Open the connection
         "" ->
-          webSocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-          response =
-            key
-            |> (&(&1 <> webSocketMagicString)).()
-            |> (&:crypto.hash(:sha, &1)).()
-            |> Base.encode64()
+          if (key) do
+            webSocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+            response =
+              key
+              |> (&(&1 <> webSocketMagicString)).()
+              |> (&:crypto.hash(:sha, &1)).()
+              |> Base.encode64()
 
-          Logger.debug("Connecting")
-          with :ok <- write_line("HTTP/1.1 101 Switching Protocols", socket),
-               :ok <- write_line("Upgrade: websocket", socket),
-               :ok <- write_line("Connection: Upgrade", socket),
-               :ok <- write_line("Sec-WebSocket-Accept: #{response}", socket),
-               :ok <- write_line("", socket) do
-            :ok
+            Logger.debug("Connecting")
+            with :ok <- write_line("HTTP/1.1 101 Switching Protocols", socket),
+                 :ok <- write_line("Upgrade: websocket", socket),
+                 :ok <- write_line("Connection: Upgrade", socket),
+                 :ok <- write_line("Sec-WebSocket-Accept: #{response}", socket),
+                 :ok <- write_line("", socket) do
+              :ok
+            end
+          else
+            Logger.warn("No key provided, aborting.")
+            {:error, :nokey}
           end
 
         # Ignore other headers
@@ -146,6 +152,10 @@ defmodule Dixit.Player do
 
           {:ok, {:text_frame, message, buffer}} ->
             deal_with_message(message, args)
+            buffer
+
+          {:ok, {:closing_frame, _message, buffer}} ->
+            Logger.info("Received closing frame");
             buffer
         end
       else
